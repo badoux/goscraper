@@ -16,10 +16,10 @@
 
 output: 
 
-**Title :** World Wide Web Consortium (W3C)
-**Description :** The World Wide Web Consortium (W3C) is an international community where Member organizations, a full-time staff, and the public work together to develop Web standards.
-**Image:** https://www.w3.org/2008/site/images/logo-w3c-mobile-lg
-**Url :** https://www.w3.org/
+**Title :** World Wide Web Consortium (W3C)  
+**Description :** The World Wide Web Consortium (W3C) is an international community where Member organizations, a full-time staff, and the public work together to develop Web standards.  
+**Image:** https://www.w3.org/2008/site/images/logo-w3c-mobile-lg  
+**Url :** https://www.w3.org/  
 
 
 ## License
