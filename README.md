@@ -3,7 +3,7 @@
 
 ## Usage
     func main() {
-		s, err := goscraper.Scrap("https://www.w3.org/", 5)
+		s, err := goscraper.Scrape("https://www.w3.org/", 5)
 		if err != nil {
 			fmt.Println(err)
 			return
