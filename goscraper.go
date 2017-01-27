@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/charset"
 )
 
 var (
@@ -40,6 +41,18 @@ func Scrape(uri string, maxRedirect int) (*Document, error) {
 		return nil, err
 	}
 	return (&Scraper{Url: u, MaxRedirect: maxRedirect}).Scrape()
+}
+
+func (scraper *Scraper) Scrape() (*Document, error) {
+	doc, err := scraper.getDocument()
+	if err != nil {
+		return nil, err
+	}
+	err = scraper.parseDocument(doc)
+	if err != nil {
+		return nil, err
+	}
+	return doc, nil
 }
 
 func (scraper *Scraper) getUrl() string {
@@ -116,18 +129,30 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 		return nil, err
 	}
 
-	dst := bytes.Buffer{}
-	_, err = io.Copy(&dst, resp.Body)
-	if err != nil {
-		return nil, err
-	}
 	if resp.Request.URL.String() != scraper.getUrl() {
 		scraper.EscapedFragmentUrl = nil
 		scraper.Url = resp.Request.URL
 	}
-	doc := &Document{Body: dst, Preview: DocumentPreview{Link: scraper.Url.String()}}
+	b, err := convertUTF8(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	doc := &Document{Body: b, Preview: DocumentPreview{Link: scraper.Url.String()}}
 
 	return doc, nil
+}
+
+func convertUTF8(content io.Reader) (bytes.Buffer, error) {
+	buff := bytes.Buffer{}
+	content, err := charset.NewReader(content, "")
+	if err != nil {
+		return buff, err
+	}
+	_, err = io.Copy(&buff, content)
+	if err != nil {
+		return buff, err
+	}
+	return buff, nil
 }
 
 func (scraper *Scraper) parseDocument(doc *Document) error {
@@ -259,25 +284,13 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 			return scraper.parseDocument(doc)
 		}
 
-		if len(doc.Preview.Title) > 0 && len(doc.Preview.Description) > 0 && len(doc.Preview.Title) > 0 && ogImage && headPassed {
+		if len(doc.Preview.Title) > 0 && len(doc.Preview.Description) > 0 && ogImage && headPassed {
 			return nil
 		}
 
 	}
 
 	return nil
-}
-
-func (scraper *Scraper) Scrape() (*Document, error) {
-	doc, err := scraper.getDocument()
-	if err != nil {
-		return nil, err
-	}
-	err = scraper.parseDocument(doc)
-	if err != nil {
-		return nil, err
-	}
-	return doc, nil
 }
 
 func avoidByte(b byte) bool {
