@@ -15,6 +15,7 @@ import (
 
 var (
 	EscapedFragment string = "_escaped_fragment_="
+	fragmentRegexp         = regexp.MustCompile("#!(.*)")
 )
 
 type Scraper struct {
@@ -63,12 +64,11 @@ func (scraper *Scraper) getUrl() string {
 }
 
 func (scraper *Scraper) toFragmentUrl() error {
-	re := regexp.MustCompile("#!(.*)")
 	unescapedurl, err := url.QueryUnescape(scraper.Url.String())
 	if err != nil {
 		return err
 	}
-	matches := re.FindStringSubmatch(unescapedurl)
+	matches := fragmentRegexp.FindStringSubmatch(unescapedurl)
 	if len(matches) > 1 {
 		escapedFragment := EscapedFragment
 		for _, r := range matches[1] {
