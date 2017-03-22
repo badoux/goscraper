@@ -233,7 +233,18 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 				doc.Preview.Link = content
 			case "og:image":
 				ogImage = true
-				doc.Preview.Images = []string{content}
+				ogImgUrl, err := url.Parse(content)
+				if err != nil {
+					return err
+				}
+				if !ogImgUrl.IsAbs() {
+					ogImgUrl, err = url.Parse(fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, ogImgUrl.Path))
+					if err != nil {
+						return err
+					}
+				}
+
+				doc.Preview.Images = []string{ogImgUrl.String()}
 
 			}
 
@@ -264,6 +275,13 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 		}
 
 		if hasCanonical && headPassed && scraper.MaxRedirect > 0 {
+			if !canonicalUrl.IsAbs() {
+				absCanonical, err := url.Parse(fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, canonicalUrl.Path))
+				if err != nil {
+					return err
+				}
+				canonicalUrl = absCanonical
+			}
 			scraper.Url = canonicalUrl
 			scraper.EscapedFragmentUrl = nil
 			fdoc, err := scraper.getDocument()
