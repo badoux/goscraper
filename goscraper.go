@@ -133,7 +133,7 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 		scraper.EscapedFragmentUrl = nil
 		scraper.Url = resp.Request.URL
 	}
-	b, err := convertUTF8(resp.Body)
+	b, err := convertUTF8(resp.Body, resp.Header.Get("content-type"))
 	if err != nil {
 		return nil, err
 	}
@@ -142,9 +142,9 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 	return doc, nil
 }
 
-func convertUTF8(content io.Reader) (bytes.Buffer, error) {
+func convertUTF8(content io.Reader, contentType string) (bytes.Buffer, error) {
 	buff := bytes.Buffer{}
-	content, err := charset.NewReader(content, "")
+	content, err := charset.NewReader(content, contentType)
 	if err != nil {
 		return buff, err
 	}
