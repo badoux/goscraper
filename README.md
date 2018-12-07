@@ -2,8 +2,10 @@
 [Golang](http://golang.org/) package to quickly return a preview of a webpage, you can get easily its title, description & images
 
 ## Usage
+	goscraper.Scrape(<url>, <max redirects>, <timeout in milliseconds>, <useragent>)
+
     func main() {
-		s, err := goscraper.Scrape("https://www.w3.org/", 5)
+		s, err := goscraper.Scrape("https://www.w3.org/", 5, 2000, "Mozilla/5.0 (X11; Linux i686; rv:64.0) Gecko/20100101 Firefox/64.0")
 		if err != nil {
 			fmt.Println(err)
 			return
