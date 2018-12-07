@@ -30,6 +30,8 @@ type Document struct {
 }
 
 type DocumentPreview struct {
+	Icon        string
+	Name        string
 	Title       string
 	Description string
 	Images      []string
@@ -165,6 +167,10 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 	doc.Preview.Images = []string{}
 	// saves previews' link in case that <link rel="canonical"> is found after <meta property="og:url">
 	link := doc.Preview.Link
+	// set default value to site name if <meta property="og:site_name"> not found
+	doc.Preview.Name = scraper.Url.Host
+	// set default icon to web root if <link rel="icon" href="/favicon.ico"> not found
+	doc.Preview.Icon = fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, "/favicon.ico")
 	for {
 		tokenType := t.Next()
 		if tokenType == html.ErrorToken {
@@ -185,10 +191,14 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 
 		case "link":
 			var canonical bool
+			var hasIcon bool
 			var href string
 			for _, attr := range token.Attr {
 				if cleanStr(attr.Key) == "rel" && cleanStr(attr.Val) == "canonical" {
 					canonical = true
+				}
+				if cleanStr(attr.Key) == "rel" && cleanStr(attr.Val) == "icon" {
+					hasIcon = true
 				}
 				if cleanStr(attr.Key) == "href" {
 					href = attr.Val
@@ -200,6 +210,9 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 					if err != nil {
 						return err
 					}
+				}
+				if len(href) > 0 && hasIcon {
+					doc.Preview.Icon = href
 				}
 			}
 
@@ -221,6 +234,8 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 				}
 			}
 			switch cleanStr(property) {
+			case "og:site_name":
+				doc.Preview.Name = content
 			case "og:title":
 				doc.Preview.Title = content
 			case "og:description":
