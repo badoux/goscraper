@@ -25,6 +25,7 @@ type Scraper struct {
 	MaxRedirect        int
 	TimeOut        	   int
 	UserAgent		   string
+	Proxy			   string
 }
 
 type Document struct {
@@ -41,12 +42,12 @@ type DocumentPreview struct {
 	Link        string
 }
 
-func Scrape(uri string, maxRedirect int, TimeOut int, UserAgent string) (*Document, error) {
+func Scrape(uri string, maxRedirect int, TimeOut int, UserAgent string, Proxy string) (*Document, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
 	}
-	return (&Scraper{Url: u, MaxRedirect: maxRedirect, TimeOut:TimeOut, UserAgent:UserAgent}).Scrape()
+	return (&Scraper{Url: u, MaxRedirect: maxRedirect, TimeOut:TimeOut, UserAgent:UserAgent, Proxy:Proxy}).Scrape()
 }
 
 func (scraper *Scraper) Scrape() (*Document, error) {
@@ -124,6 +125,7 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 
 	req := goreq.Request{
     	Uri: scraper.getUrl(),
+    	Proxy: scraper.Proxy,
     	UserAgent: scraper.UserAgent,
     	Timeout: time.Duration(scraper.TimeOut) * time.Millisecond,
 	}
