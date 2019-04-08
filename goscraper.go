@@ -18,17 +18,22 @@ var (
 	fragmentRegexp         = regexp.MustCompile("#!(.*)")
 )
 
+// Scraper contains the necessary information to trigger the Scraping process
+// in a given url
 type Scraper struct {
 	Url                *url.URL
 	EscapedFragmentUrl *url.URL
 	MaxRedirect        int
+	PreferTag          bool
 }
 
+// Document holds the Body of a page and it's preview.
 type Document struct {
 	Body    bytes.Buffer
 	Preview DocumentPreview
 }
 
+// DocumentPreview holds preview metadata for a given site.
 type DocumentPreview struct {
 	Icon        string
 	Name        string
@@ -38,7 +43,11 @@ type DocumentPreview struct {
 	Link        string
 }
 
-func Scrape(uri string, maxRedirect int) (*Document, error) {
+// Scrape will return a document containing, if possible, the preview for the passed
+// in URL or where that redirects up to maxRedirect hops or error if not possible.
+// if preferTag is true some bits of info, such as title, might be taken from
+// the specific html tag even if the meta is present.
+func Scrape(uri string, maxRedirect int, preferTag bool) (*Document, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -46,6 +55,7 @@ func Scrape(uri string, maxRedirect int) (*Document, error) {
 	return (&Scraper{Url: u, MaxRedirect: maxRedirect}).Scrape()
 }
 
+// Scrape scrapes the documentd contained in this Scraper.
 func (scraper *Scraper) Scrape() (*Document, error) {
 	doc, err := scraper.getDocument()
 	if err != nil {
@@ -267,7 +277,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 			if tokenType == html.StartTagToken {
 				t.Next()
 				token = t.Token()
-				if len(doc.Preview.Title) == 0 {
+				if len(doc.Preview.Title) == 0 || scraper.PreferTag {
 					doc.Preview.Title = token.Data
 				}
 			}
