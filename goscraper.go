@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/charset"
+	"github.com/franela/goreq"
 )
 
 var (
@@ -22,6 +23,9 @@ type Scraper struct {
 	Url                *url.URL
 	EscapedFragmentUrl *url.URL
 	MaxRedirect        int
+	TimeOut        	   int
+	UserAgent		   string
+	Proxy			   string
 }
 
 type Document struct {
@@ -38,12 +42,12 @@ type DocumentPreview struct {
 	Link        string
 }
 
-func Scrape(uri string, maxRedirect int) (*Document, error) {
+func Scrape(uri string, maxRedirect int, TimeOut int, UserAgent string, Proxy string) (*Document, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
 	}
-	return (&Scraper{Url: u, MaxRedirect: maxRedirect}).Scrape()
+	return (&Scraper{Url: u, MaxRedirect: maxRedirect, TimeOut:TimeOut, UserAgent:UserAgent, Proxy:Proxy}).Scrape()
 }
 
 func (scraper *Scraper) Scrape() (*Document, error) {
@@ -117,13 +121,16 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 		scraper.EscapedFragmentUrl = scraper.Url
 	}
 
-	req, err := http.NewRequest("GET", scraper.getUrl(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("User-Agent", "GoScraper")
+	goreq.SetConnectTimeout(time.Duration(scraper.TimeOut) * time.Millisecond)
 
-	resp, err := http.DefaultClient.Do(req)
+	req := goreq.Request{
+    	Uri: scraper.getUrl(),
+    	Proxy: scraper.Proxy,
+    	UserAgent: scraper.UserAgent,
+    	Timeout: time.Duration(scraper.TimeOut) * time.Millisecond,
+	}
+
+	resp, err := req.Do()
 	if resp != nil {
 		defer resp.Body.Close()
 	}
