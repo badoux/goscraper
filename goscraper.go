@@ -23,6 +23,7 @@ type Scraper struct {
 	Url                *url.URL
 	EscapedFragmentUrl *url.URL
 	MaxRedirect        int
+	UserAgent          string
 }
 
 type Document struct {
@@ -39,12 +40,15 @@ type DocumentPreview struct {
 	Link        string
 }
 
-func Scrape(uri string, maxRedirect int) (*Document, error) {
+func Scrape(uri string, maxRedirect int, userAgent string) (*Document, error) {
+	if userAgent == "" {
+		userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"
+	}
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
 	}
-	return (&Scraper{Url: u, MaxRedirect: maxRedirect}).Scrape()
+	return (&Scraper{Url: u, MaxRedirect: maxRedirect, UserAgent: userAgent}).Scrape()
 }
 
 func (scraper *Scraper) Scrape() (*Document, error) {
@@ -135,7 +139,7 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("User-Agent", "GoScraper")
+	req.Header.Add("User-Agent", scraper.UserAgent)
 
 	resp, err := scraper.client().Do(req)
 	if resp != nil {
