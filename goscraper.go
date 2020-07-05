@@ -16,12 +16,14 @@ import (
 var (
 	EscapedFragment string = "_escaped_fragment_="
 	fragmentRegexp         = regexp.MustCompile("#!(.*)")
+	badQueryKeys           = []string{"from"}
 )
 
 type Scraper struct {
 	Url                *url.URL
 	EscapedFragmentUrl *url.URL
 	MaxRedirect        int
+	Headers            map[string]string
 }
 
 type Document struct {
@@ -38,12 +40,12 @@ type DocumentPreview struct {
 	Link        string
 }
 
-func Scrape(uri string, maxRedirect int) (*Document, error) {
+func Scrape(uri string, maxRedirect int, headers map[string]string) (*Document, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
 	}
-	return (&Scraper{Url: u, MaxRedirect: maxRedirect}).Scrape()
+	return (&Scraper{Url: u, MaxRedirect: maxRedirect, Headers: headers}).Scrape()
 }
 
 func (scraper *Scraper) Scrape() (*Document, error) {
@@ -108,6 +110,19 @@ func (scraper *Scraper) toFragmentUrl() error {
 	return nil
 }
 
+func (scraper *Scraper) client() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			query := req.URL.Query()
+			for _, v := range badQueryKeys {
+				query.Del(v)
+			}
+			req.URL.RawQuery = query.Encode()
+			return nil
+		},
+	}
+}
+
 func (scraper *Scraper) getDocument() (*Document, error) {
 	scraper.MaxRedirect -= 1
 	if strings.Contains(scraper.Url.String(), "#!") {
@@ -121,9 +136,12 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("User-Agent", "GoScraper")
+	//Add headers
+	for k, v := range scraper.Headers {
+		req.Header.Add(k, v)
+	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := scraper.client().Do(req)
 	if resp != nil {
 		defer resp.Body.Close()
 	}
@@ -197,7 +215,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 				if cleanStr(attr.Key) == "rel" && cleanStr(attr.Val) == "canonical" {
 					canonical = true
 				}
-				if cleanStr(attr.Key) == "rel" && strings.Contains(cleanStr(attr.Val),  "icon") {
+				if cleanStr(attr.Key) == "rel" && strings.Contains(cleanStr(attr.Val), "icon") {
 					hasIcon = true
 				}
 				if cleanStr(attr.Key) == "href" {
@@ -217,7 +235,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 			}
 
 		case "meta":
-			if len(token.Attr) != 2 {
+			if len(token.Attr) < 2 {
 				break
 			}
 			if metaFragment(token) && scraper.EscapedFragmentUrl == nil {
