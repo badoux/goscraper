@@ -41,6 +41,7 @@ type DocumentPreview struct {
 	Name        string
 	Title       string
 	Description string
+	Type        string
 	Images      []string
 	Link        string
 }
@@ -137,20 +138,18 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 	if scraper.Options.MaxDocumentLength > 0 {
 		// We try first to check content length (if it's present) - and if isn't - already limit by body size
 		req, err := http.NewRequest("HEAD", scraper.getUrl(), nil)
-		if err != nil {
-			return nil, err
-		}
-		req = addUserAgent(req)
+		if err == nil {
+			req = addUserAgent(req)
 
-		resp, err := http.DefaultClient.Do(req)
-		if resp != nil {
-			defer resp.Body.Close()
-		}
-		if err != nil {
-			return nil, err
-		}
-		if resp.ContentLength > scraper.Options.MaxDocumentLength {
-			return nil, errors.New("Content-Length exceed limits")
+			resp, err := http.DefaultClient.Do(req)
+			if resp != nil {
+				defer resp.Body.Close()
+			}
+			if err == nil {
+				if resp.ContentLength > scraper.Options.MaxDocumentLength {
+					return nil, errors.New("Content-Length exceed limits")
+				}
+			}
 		}
 	}
 
@@ -280,6 +279,8 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 				doc.Preview.Name = content
 			case "og:title":
 				doc.Preview.Title = content
+			case "og:type":
+				doc.Preview.Type = content
 			case "og:description":
 				doc.Preview.Description = content
 			case "description":
@@ -322,7 +323,11 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 						return err
 					}
 					if !imgUrl.IsAbs() {
-						doc.Preview.Images = append(doc.Preview.Images, fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, imgUrl.Path))
+						if string(imgUrl.Path[0]) == "/" {
+							doc.Preview.Images = append(doc.Preview.Images, fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, imgUrl.Path))
+						} else {
+							doc.Preview.Images = append(doc.Preview.Images, fmt.Sprintf("%s://%s/%s", scraper.Url.Scheme, scraper.Url.Host, imgUrl.Path))
+						}
 					} else {
 						doc.Preview.Images = append(doc.Preview.Images, attr.Val)
 					}
