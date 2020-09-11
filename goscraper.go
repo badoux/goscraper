@@ -19,6 +19,63 @@ var (
 	fragmentRegexp         = regexp.MustCompile("#!(.*)")
 )
 
+type scrapeSettings struct {
+	userAgent         string
+	maxDocumentLength int64
+	url               string
+	maxRedirect       int
+}
+
+type ScrapeBuilder interface {
+	SetUserAgent(string) ScrapeBuilder
+	SetMaxDocumentLength(int64) ScrapeBuilder
+	SetUrl(string) ScrapeBuilder
+	SetMaxRedirect(int) ScrapeBuilder
+	Build() (*Scraper, error)
+}
+
+type scrapeBuilder struct {
+	scrapeSettings scrapeSettings
+}
+
+func (b *scrapeBuilder) Build() (*Scraper, error) {
+	u, err := url.Parse(b.scrapeSettings.url)
+	if err != nil {
+		return nil, err
+	}
+	return &Scraper{
+		Url:         u,
+		MaxRedirect: b.scrapeSettings.maxRedirect,
+		Options: ScraperOptions{
+			MaxDocumentLength: b.scrapeSettings.maxDocumentLength,
+			UserAgent:         b.scrapeSettings.userAgent,
+		}}, nil
+}
+
+func (b *scrapeBuilder) SetUrl(s string) ScrapeBuilder {
+	b.scrapeSettings.url = s
+	return b
+}
+
+func (b *scrapeBuilder) SetMaxRedirect(i int) ScrapeBuilder {
+	b.scrapeSettings.maxRedirect = i
+	return b
+}
+
+func (b *scrapeBuilder) SetMaxDocumentLength(maxDocLength int64) ScrapeBuilder {
+	b.scrapeSettings.maxDocumentLength = maxDocLength
+	return b
+}
+
+func (b *scrapeBuilder) SetUserAgent(s string) ScrapeBuilder {
+	b.scrapeSettings.userAgent = s
+	return b
+}
+
+func NewScrapeBuilder() ScrapeBuilder {
+	return &scrapeBuilder{scrapeSettings{userAgent: "GoScraper"}}
+}
+
 type ScraperOptions struct {
 	MaxDocumentLength int64
 	UserAgent         string
@@ -32,8 +89,13 @@ type Scraper struct {
 }
 
 type Document struct {
-	Body    bytes.Buffer
-	Preview DocumentPreview
+	Body      bytes.Buffer
+	Preview   DocumentPreview
+	ResHeader ResHeaders
+}
+
+type ResHeaders struct {
+	ContentType string
 }
 
 type DocumentPreview struct {
@@ -60,6 +122,18 @@ func (scraper *Scraper) Scrape() (*Document, error) {
 		return nil, err
 	}
 	err = scraper.parseDocument(doc)
+	if err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
+func (scraper *Scraper) GetDocument() (*Document, error) {
+	return scraper.getDocument()
+}
+
+func (scraper *Scraper) ParseDocument(doc *Document) (*Document, error) {
+	err := scraper.parseDocument(doc)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +254,11 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	doc := &Document{Body: b, Preview: DocumentPreview{Link: scraper.Url.String()}}
+	doc := &Document{
+		Body:      b,
+		Preview:   DocumentPreview{Link: scraper.Url.String()},
+		ResHeader: ResHeaders{ContentType: resp.Header.Get("content-type")},
+	}
 
 	return doc, nil
 }
