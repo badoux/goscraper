@@ -31,14 +31,14 @@ type ScrapeBuilder interface {
 	SetMaxDocumentLength(int64) ScrapeBuilder
 	SetUrl(string) ScrapeBuilder
 	SetMaxRedirect(int) ScrapeBuilder
-	Build() (*Scraper, error)
+	Build() (ScrapeService, error)
 }
 
 type scrapeBuilder struct {
 	scrapeSettings scrapeSettings
 }
 
-func (b *scrapeBuilder) Build() (*Scraper, error) {
+func (b *scrapeBuilder) Build() (ScrapeService, error) {
 	u, err := url.Parse(b.scrapeSettings.url)
 	if err != nil {
 		return nil, err
@@ -73,7 +73,9 @@ func (b *scrapeBuilder) SetUserAgent(s string) ScrapeBuilder {
 }
 
 func NewScrapeBuilder() ScrapeBuilder {
-	return &scrapeBuilder{scrapeSettings{userAgent: "GoScraper"}}
+	return &scrapeBuilder{
+		scrapeSettings: scrapeSettings{userAgent: "GoScraper"},
+	}
 }
 
 type ScraperOptions struct {
@@ -106,6 +108,12 @@ type DocumentPreview struct {
 	Type        string
 	Images      []string
 	Link        string
+}
+
+type ScrapeService interface {
+	Scrape() (*Document, error)
+	GetDocument() (*Document, error)
+	ParseDocument(doc *Document) (*Document, error)
 }
 
 func Scrape(uri string, maxRedirect int, options ScraperOptions) (*Document, error) {
