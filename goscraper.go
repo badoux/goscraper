@@ -382,10 +382,8 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 					return err
 				}
 				if !ogImgUrl.IsAbs() {
-					ogImgUrl, err = url.Parse(fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, ogImgUrl.Path))
-					if err != nil {
-						return err
-					}
+					ogImgUrl.Host = scraper.Url.Host
+					ogImgUrl.Scheme = scraper.Url.Scheme
 				}
 
 				doc.Preview.Images = []string{ogImgUrl.String()}
