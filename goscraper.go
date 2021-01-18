@@ -24,6 +24,7 @@ type scrapeSettings struct {
 	maxDocumentLength int64
 	url               string
 	maxRedirect       int
+	maxTokenDepth     int
 }
 
 type ScrapeBuilder interface {
@@ -32,6 +33,7 @@ type ScrapeBuilder interface {
 	SetUrl(string) ScrapeBuilder
 	SetMaxRedirect(int) ScrapeBuilder
 	Build() (ScrapeService, error)
+	SetMaxTokenDepth(int) ScrapeBuilder
 }
 
 type scrapeBuilder struct {
@@ -49,6 +51,7 @@ func (b *scrapeBuilder) Build() (ScrapeService, error) {
 		Options: ScraperOptions{
 			MaxDocumentLength: b.scrapeSettings.maxDocumentLength,
 			UserAgent:         b.scrapeSettings.userAgent,
+			MaxTokenDepth:     b.scrapeSettings.maxTokenDepth,
 		}}, nil
 }
 
@@ -59,6 +62,11 @@ func (b *scrapeBuilder) SetUrl(s string) ScrapeBuilder {
 
 func (b *scrapeBuilder) SetMaxRedirect(i int) ScrapeBuilder {
 	b.scrapeSettings.maxRedirect = i
+	return b
+}
+
+func (b *scrapeBuilder) SetMaxTokenDepth(i int) ScrapeBuilder {
+	b.scrapeSettings.maxTokenDepth = i
 	return b
 }
 
@@ -81,6 +89,7 @@ func NewScrapeBuilder() ScrapeBuilder {
 type ScraperOptions struct {
 	MaxDocumentLength int64
 	UserAgent         string
+	MaxTokenDepth     int
 }
 
 type Scraper struct {
@@ -286,7 +295,8 @@ func convertUTF8(content io.Reader, contentType string) (bytes.Buffer, error) {
 
 func (scraper *Scraper) parseDocument(doc *Document) error {
 	t := html.NewTokenizer(&doc.Body)
-	var ogImage bool
+	var hasOgImage bool
+	var hasOgType bool
 	var headPassed bool
 	var hasFragment bool
 	var hasCanonical bool
@@ -298,6 +308,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 	doc.Preview.Name = scraper.Url.Host
 	// set default icon to web root if <link rel="icon" href="/favicon.ico"> not found
 	doc.Preview.Icon = fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, "/favicon.ico")
+	depth := 0
 	for {
 		tokenType := t.Next()
 		if tokenType == html.ErrorToken {
@@ -342,6 +353,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 					doc.Preview.Icon = href
 				}
 			}
+			depth = 0
 
 		case "meta":
 			if len(token.Attr) != 2 {
@@ -367,6 +379,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 				doc.Preview.Title = content
 			case "og:type":
 				doc.Preview.Type = content
+				hasOgType = true
 			case "og:description":
 				doc.Preview.Description = content
 			case "description":
@@ -376,7 +389,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 			case "og:url":
 				doc.Preview.Link = content
 			case "og:image":
-				ogImage = true
+				hasOgImage = true
 				ogImgUrl, err := url.Parse(content)
 				if err != nil {
 					return err
@@ -389,6 +402,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 				doc.Preview.Images = []string{ogImgUrl.String()}
 
 			}
+			depth = 0
 
 		case "title":
 			if tokenType == html.StartTagToken {
@@ -398,6 +412,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 					doc.Preview.Title = token.Data
 				}
 			}
+			depth = 0
 
 		case "img":
 			for _, attr := range token.Attr {
@@ -418,6 +433,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 
 				}
 			}
+			depth = 0
 		}
 
 		if hasCanonical && headPassed && scraper.MaxRedirect > 0 {
@@ -448,10 +464,15 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 			return scraper.parseDocument(doc)
 		}
 
-		if len(doc.Preview.Title) > 0 && len(doc.Preview.Description) > 0 && ogImage && headPassed {
-			return nil
+		if len(doc.Preview.Title) > 0 && len(doc.Preview.Description) > 0 && hasOgImage && headPassed {
+			if scraper.Options.MaxTokenDepth == 0 {
+				return nil
+			}
+			if hasOgType || depth >= scraper.Options.MaxTokenDepth {
+				return nil
+			}
+			depth++
 		}
-
 	}
 
 	return nil
