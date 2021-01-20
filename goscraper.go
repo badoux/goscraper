@@ -2,6 +2,7 @@ package goscraper
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,15 +19,94 @@ var (
 	fragmentRegexp         = regexp.MustCompile("#!(.*)")
 )
 
+type scrapeSettings struct {
+	userAgent         string
+	maxDocumentLength int64
+	url               string
+	maxRedirect       int
+	maxTokenDepth     int
+}
+
+type ScrapeBuilder interface {
+	SetUserAgent(string) ScrapeBuilder
+	SetMaxDocumentLength(int64) ScrapeBuilder
+	SetUrl(string) ScrapeBuilder
+	SetMaxRedirect(int) ScrapeBuilder
+	Build() (ScrapeService, error)
+	SetMaxTokenDepth(int) ScrapeBuilder
+}
+
+type scrapeBuilder struct {
+	scrapeSettings scrapeSettings
+}
+
+func (b *scrapeBuilder) Build() (ScrapeService, error) {
+	u, err := url.Parse(b.scrapeSettings.url)
+	if err != nil {
+		return nil, err
+	}
+	return &Scraper{
+		Url:         u,
+		MaxRedirect: b.scrapeSettings.maxRedirect,
+		Options: ScraperOptions{
+			MaxDocumentLength: b.scrapeSettings.maxDocumentLength,
+			UserAgent:         b.scrapeSettings.userAgent,
+			MaxTokenDepth:     b.scrapeSettings.maxTokenDepth,
+		}}, nil
+}
+
+func (b *scrapeBuilder) SetUrl(s string) ScrapeBuilder {
+	b.scrapeSettings.url = s
+	return b
+}
+
+func (b *scrapeBuilder) SetMaxRedirect(i int) ScrapeBuilder {
+	b.scrapeSettings.maxRedirect = i
+	return b
+}
+
+func (b *scrapeBuilder) SetMaxTokenDepth(i int) ScrapeBuilder {
+	b.scrapeSettings.maxTokenDepth = i
+	return b
+}
+
+func (b *scrapeBuilder) SetMaxDocumentLength(maxDocLength int64) ScrapeBuilder {
+	b.scrapeSettings.maxDocumentLength = maxDocLength
+	return b
+}
+
+func (b *scrapeBuilder) SetUserAgent(s string) ScrapeBuilder {
+	b.scrapeSettings.userAgent = s
+	return b
+}
+
+func NewScrapeBuilder() ScrapeBuilder {
+	return &scrapeBuilder{
+		scrapeSettings: scrapeSettings{userAgent: "GoScraper"},
+	}
+}
+
+type ScraperOptions struct {
+	MaxDocumentLength int64
+	UserAgent         string
+	MaxTokenDepth     int
+}
+
 type Scraper struct {
 	Url                *url.URL
 	EscapedFragmentUrl *url.URL
 	MaxRedirect        int
+	Options            ScraperOptions
 }
 
 type Document struct {
-	Body    bytes.Buffer
-	Preview DocumentPreview
+	Body      bytes.Buffer
+	Preview   DocumentPreview
+	ResHeader ResHeaders
+}
+
+type ResHeaders struct {
+	ContentType string
 }
 
 type DocumentPreview struct {
@@ -34,16 +114,23 @@ type DocumentPreview struct {
 	Name        string
 	Title       string
 	Description string
+	Type        string
 	Images      []string
 	Link        string
 }
 
-func Scrape(uri string, maxRedirect int) (*Document, error) {
+type ScrapeService interface {
+	Scrape() (*Document, error)
+	GetDocument() (*Document, error)
+	ParseDocument(doc *Document) (*Document, error)
+}
+
+func Scrape(uri string, maxRedirect int, options ScraperOptions) (*Document, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
 	}
-	return (&Scraper{Url: u, MaxRedirect: maxRedirect}).Scrape()
+	return (&Scraper{Url: u, MaxRedirect: maxRedirect, Options: options}).Scrape()
 }
 
 func (scraper *Scraper) Scrape() (*Document, error) {
@@ -52,6 +139,18 @@ func (scraper *Scraper) Scrape() (*Document, error) {
 		return nil, err
 	}
 	err = scraper.parseDocument(doc)
+	if err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
+func (scraper *Scraper) GetDocument() (*Document, error) {
+	return scraper.getDocument()
+}
+
+func (scraper *Scraper) ParseDocument(doc *Document) (*Document, error) {
+	err := scraper.parseDocument(doc)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +208,16 @@ func (scraper *Scraper) toFragmentUrl() error {
 }
 
 func (scraper *Scraper) getDocument() (*Document, error) {
+	addUserAgent := func(req *http.Request) *http.Request {
+		userAgent := "GoScraper"
+		if len(scraper.Options.UserAgent) != 0 {
+			userAgent = scraper.Options.UserAgent
+		}
+		req.Header.Add("User-Agent", userAgent)
+
+		return req
+	}
+
 	scraper.MaxRedirect -= 1
 	if strings.Contains(scraper.Url.String(), "#!") {
 		scraper.toFragmentUrl()
@@ -117,11 +226,29 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 		scraper.EscapedFragmentUrl = scraper.Url
 	}
 
+	if scraper.Options.MaxDocumentLength > 0 {
+		// We try first to check content length (if it's present) - and if isn't - already limit by body size
+		req, err := http.NewRequest("HEAD", scraper.getUrl(), nil)
+		if err == nil {
+			req = addUserAgent(req)
+
+			resp, err := http.DefaultClient.Do(req)
+			if resp != nil {
+				defer resp.Body.Close()
+			}
+			if err == nil {
+				if resp.ContentLength > scraper.Options.MaxDocumentLength {
+					return nil, errors.New("Content-Length exceed limits")
+				}
+			}
+		}
+	}
+
 	req, err := http.NewRequest("GET", scraper.getUrl(), nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("User-Agent", "GoScraper")
+	req = addUserAgent(req)
 
 	resp, err := http.DefaultClient.Do(req)
 	if resp != nil {
@@ -135,11 +262,20 @@ func (scraper *Scraper) getDocument() (*Document, error) {
 		scraper.EscapedFragmentUrl = nil
 		scraper.Url = resp.Request.URL
 	}
+
+	if scraper.Options.MaxDocumentLength > 0 {
+		resp.Body = http.MaxBytesReader(nil, resp.Body, scraper.Options.MaxDocumentLength)
+	}
+
 	b, err := convertUTF8(resp.Body, resp.Header.Get("content-type"))
 	if err != nil {
 		return nil, err
 	}
-	doc := &Document{Body: b, Preview: DocumentPreview{Link: scraper.Url.String()}}
+	doc := &Document{
+		Body:      b,
+		Preview:   DocumentPreview{Link: scraper.Url.String()},
+		ResHeader: ResHeaders{ContentType: resp.Header.Get("content-type")},
+	}
 
 	return doc, nil
 }
@@ -159,7 +295,8 @@ func convertUTF8(content io.Reader, contentType string) (bytes.Buffer, error) {
 
 func (scraper *Scraper) parseDocument(doc *Document) error {
 	t := html.NewTokenizer(&doc.Body)
-	var ogImage bool
+	var hasOgImage bool
+	var hasOgType bool
 	var headPassed bool
 	var hasFragment bool
 	var hasCanonical bool
@@ -171,6 +308,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 	doc.Preview.Name = scraper.Url.Host
 	// set default icon to web root if <link rel="icon" href="/favicon.ico"> not found
 	doc.Preview.Icon = fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, "/favicon.ico")
+	depth := 0
 	for {
 		tokenType := t.Next()
 		if tokenType == html.ErrorToken {
@@ -197,7 +335,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 				if cleanStr(attr.Key) == "rel" && cleanStr(attr.Val) == "canonical" {
 					canonical = true
 				}
-				if cleanStr(attr.Key) == "rel" && strings.Contains(cleanStr(attr.Val),  "icon") {
+				if cleanStr(attr.Key) == "rel" && strings.Contains(cleanStr(attr.Val), "icon") {
 					hasIcon = true
 				}
 				if cleanStr(attr.Key) == "href" {
@@ -215,6 +353,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 					doc.Preview.Icon = href
 				}
 			}
+			depth = 0
 
 		case "meta":
 			if len(token.Attr) != 2 {
@@ -238,6 +377,9 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 				doc.Preview.Name = content
 			case "og:title":
 				doc.Preview.Title = content
+			case "og:type":
+				doc.Preview.Type = content
+				hasOgType = true
 			case "og:description":
 				doc.Preview.Description = content
 			case "description":
@@ -247,21 +389,20 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 			case "og:url":
 				doc.Preview.Link = content
 			case "og:image":
-				ogImage = true
+				hasOgImage = true
 				ogImgUrl, err := url.Parse(content)
 				if err != nil {
 					return err
 				}
 				if !ogImgUrl.IsAbs() {
-					ogImgUrl, err = url.Parse(fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, ogImgUrl.Path))
-					if err != nil {
-						return err
-					}
+					ogImgUrl.Host = scraper.Url.Host
+					ogImgUrl.Scheme = scraper.Url.Scheme
 				}
 
 				doc.Preview.Images = []string{ogImgUrl.String()}
 
 			}
+			depth = 0
 
 		case "title":
 			if tokenType == html.StartTagToken {
@@ -271,6 +412,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 					doc.Preview.Title = token.Data
 				}
 			}
+			depth = 0
 
 		case "img":
 			for _, attr := range token.Attr {
@@ -280,13 +422,18 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 						return err
 					}
 					if !imgUrl.IsAbs() {
-						doc.Preview.Images = append(doc.Preview.Images, fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, imgUrl.Path))
+						if string(imgUrl.Path[0]) == "/" {
+							doc.Preview.Images = append(doc.Preview.Images, fmt.Sprintf("%s://%s%s", scraper.Url.Scheme, scraper.Url.Host, imgUrl.Path))
+						} else {
+							doc.Preview.Images = append(doc.Preview.Images, fmt.Sprintf("%s://%s/%s", scraper.Url.Scheme, scraper.Url.Host, imgUrl.Path))
+						}
 					} else {
 						doc.Preview.Images = append(doc.Preview.Images, attr.Val)
 					}
 
 				}
 			}
+			depth = 0
 		}
 
 		if hasCanonical && headPassed && scraper.MaxRedirect > 0 {
@@ -317,10 +464,15 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 			return scraper.parseDocument(doc)
 		}
 
-		if len(doc.Preview.Title) > 0 && len(doc.Preview.Description) > 0 && ogImage && headPassed {
-			return nil
+		if len(doc.Preview.Title) > 0 && len(doc.Preview.Description) > 0 && hasOgImage && headPassed {
+			if scraper.Options.MaxTokenDepth == 0 {
+				return nil
+			}
+			if hasOgType || depth >= scraper.Options.MaxTokenDepth {
+				return nil
+			}
+			depth++
 		}
-
 	}
 
 	return nil
