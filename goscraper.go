@@ -204,7 +204,7 @@ func (scraper *Scraper) parseDocument(doc *Document) error {
 				if cleanStr(attr.Key) == "rel" && cleanStr(attr.Val) == "canonical" {
 					canonical = true
 				}
-				if cleanStr(attr.Key) == "rel" && cleanStr(attr.Val) == "icon" {
+				if cleanStr(attr.Key) == "rel" && strings.Contains(cleanStr(attr.Val),  "icon") {
 					hasIcon = true
 				}
 				if cleanStr(attr.Key) == "href" {
